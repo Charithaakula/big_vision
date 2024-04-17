@@ -16,7 +16,7 @@ a = jnp.arange( 8 * 16.).reshape(8, 16)
 b = jnp.arange(16 * 32.).reshape(16, 32)
 
 @partial(shard_map, mesh=mesh, in_specs=(P('i', 'j'), P('j', None)),
-         out_specs=None)
+         out_specs=P(None, None))
 def matmul_basic(a_block, b_block):
   # a_block: f32[2, 8]
   # b_block: f32[8, 32]
@@ -27,9 +27,11 @@ def matmul_basic(a_block, b_block):
   
     # Print shape and layout of the output array
   print("Output array shape:", mean_c.shape)
-  with jax.xla_device_mesh(devices):
-      print("Output array device layout:", jax.xla.xla_device(mean_c))
-  return mean_c
+  # with jax.xla_device_mesh(devices):
+  #     print("Output array device layout:", jax.xla.xla_device(mean_c))
+  print(jnp.tile(mean_c, (1, 1)))
+  return jnp.tile(mean_c, (1, 1))
+  #return mean_c
 
 c = matmul_basic(a, b)  # c: f32[8, 32]
 print(c)

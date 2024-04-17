@@ -28,14 +28,14 @@ print(mesh)
 def _gather_from_device(x, device_id, axis_name="batch"):
     me = jax.lax.axis_index('batch').flatten()
     me = me[0]
-    jnp.equal(device_id, me)
+    noskip = jnp.equal(device_id, me)
     return jax.lax.psum((noskip) * x, axis_name)
 
 # def _gather_from_device(x, device_id, axis_name="batch"):
 #   return jax.lax.psum((jax.lax.axis_index(axis_name) == device_id) * x,
 #                       axis_name)
 
-@partial(shard_map, mesh=mesh, in_specs=(P('batch', None), P('batch', None)), out_specs=None)
+@partial(shard_map, mesh=mesh, in_specs=(P('batch', None), P('batch', None)), out_specs=P('batch'))
 def chunked_sigmoid_loss_sharded(zimg, ztxt):
     """Loss computation adapted for shard_map with cross-device negative loss calculation."""
     print(zimg.shape)
@@ -56,20 +56,17 @@ def chunked_sigmoid_loss_sharded(zimg, ztxt):
         return -jnp.sum(loglik_ot, axis=-1).mean()
         #return 0
 
-    # Aggregate negative losses across shards
-    #me = jax.lax.axis_index('batch')
-    #me = jax.lax.axis_index('batch')
     me = jax.lax.axis_index('batch').flatten()
     print(f'me is {me[0]}')
     me = me[0]
     #me.astype(int)
     #print(type(me))
-    # nll_others = 0
-    # for device_id in range(jax.device_count()):
-    #     #print(device_id.dtype)
-    #     ztxt_other_device = _gather_from_device(ztxt, device_id, "batch")
-    #     skip = jnp.not_equal(device_id, me)
-    #     nll_others += skip * negative_loss(ztxt_other_device)
+    nll_others = 0
+    for device_id in range(jax.device_count()):
+        #print(device_id.dtype)
+        ztxt_other_device = _gather_from_device(ztxt, device_id, "batch")
+        skip = jnp.not_equal(device_id, me)
+        nll_others += skip * negative_loss(ztxt_other_device)
 
     # eye = jnp.eye(zimg.shape[0])
     # stats = {
@@ -81,14 +78,10 @@ def chunked_sigmoid_loss_sharded(zimg, ztxt):
     #     # "local_neg_avg_logit": _avg_neg_logit(logits_me),
     # }
     print('entering here as well lol')
-    print(nll_me.dtype)
-    print(nll_me.shape)
-    print(type(nll_me))
-    print(nll_me)
-    print("Output array shape:", nll_me.shape)
-
+    val = nll_me + nll_others 
+    val = jnp.tile(val, (1))
     #return jnp.array(nll_me) 
-    return nll_me
+    return val
     #return [nll_me]
 
 key = random.PRNGKey(0)  # Initialize a PRNG key
