@@ -143,6 +143,12 @@ def main(argv):
 #                                                                              #
 ################################################################################
 
+def _gather_from_device(x, device_id, axis_name="batch"):
+    me = jax.lax.axis_index('batch').flatten()
+    me = me[0]
+    noskip = jnp.equal(device_id, me)
+    return jax.lax.psum((noskip) * x, axis_name)
+
 def setup_mesh_and_sharding_functions():
   config_mesh = [("data", jax.device_count())]
   sharding_rules = [("act_batch", "data")]
@@ -155,36 +161,34 @@ def setup_mesh_and_sharding_functions():
   # order presribed by the `devices_flat` variable should be used throughout
   # the program.
   devices_flat = device_mesh.flatten()
+  #@partial(shard_map, mesh=mesh, in_specs=(P('batch', None), P('batch', None), P(None, None),P(None, None)), out_specs=P('batch'))
+  @partial(shard_map, mesh=mesh, in_specs=(P('batch', None), P('batch', None), P(),P()), out_specs=P('batch'))
+  def chunked_sigmoid_loss_sharded(zimg, ztxt, temperature, bias):
+      """Loss computation adapted for shard_map with cross-device negative loss calculation."""
+      print(zimg.shape)
+      print(ztxt.shape)
+      # Calculate loss for representations on this shard, which includes positives.
+      logits_me = jnp.dot(zimg, ztxt.T)  # (n, D) . (D, n) -> (n, n)
+      logits_me = logits_me * temperature + bias
+      m1_diag1 = -jnp.ones_like(logits_me) + 2 * jnp.eye(zimg.shape[0])
+      loglik_me = jax.nn.log_sigmoid(m1_diag1 * logits_me)
+      nll_me = -loglik_me.sum(axis=-1).mean()
 
-  @partial(shard_map, mesh=mesh, in_specs=(P('batch', None), P('batch', None), None, None),
-          out_specs=(None, None))
-  def chunked_sigmoid_loss_sharded(zimg, ztxt, temperature, bias=0.0):
-    """Loss computation adapted for shard_map with cross-device negative loss calculation."""
-    # Calculate loss for representations on this shard, which includes positives.
-    logits_me = jnp.dot(zimg, ztxt.T)  # (n, D) . (D, n) -> (n, n)
-    logits_me = logits_me * temperature + bias
-    m1_diag1 = -jnp.ones_like(logits_me) + 2 * jnp.eye(zimg.shape[0])
-    loglik_me = jax.nn.log_sigmoid(m1_diag1 * logits_me)
-    nll_me = -loglik_me.sum(axis=-1).mean()
+      # Function to compute negative loss for other shard data
+      def negative_loss(ztxt_other_device):
+          logits_ot = jnp.dot(zimg, ztxt_other_device.T)  # (n, D) . (D, n) -> (n, n)
+          logits_ot = logits_ot * temperature + bias
+          loglik_ot = jax.nn.log_sigmoid(-logits_ot)
+          return -jnp.sum(loglik_ot, axis=-1).mean()
 
-    # Function to compute negative loss for other shard data
-    def negative_loss(ztxt_other_device):
-        logits_ot = jnp.dot(zimg, ztxt_other_device.T)
-        logits_ot = logits_ot * temperature + bias
-        loglik_ot = jax.nn.log_sigmoid(-logits_ot)
-        return -jnp.sum(loglik_ot, axis=-1).mean()
-
-    # Aggregate negative losses across shards
-    me = jax.lax.axis_index('batch')
-    nll_others = 0
-    for device_id in range(jax.device_count()):
-        ztxt_other_device = _gather_from_device(ztxt, device_id, "batch")
-        if device_id != me:
-            nll_others += negative_loss(ztxt_other_device)
-    eye = jnp.eye(zimg.shape[0])
-    return nll_me + nll_others
-
-    return chunked_sigmoid_loss_sharded
+      me = jax.lax.axis_index('batch').flatten()
+      me = me[0]
+      nll_others = 0
+      for device_id in range(jax.device_count()):
+          ztxt_other_device = _gather_from_device(ztxt, device_id, "batch")
+          skip = jnp.not_equal(device_id, me)
+          nll_others += skip * negative_loss(ztxt_other_device)
+      return jnp.tile(nll_me + nll_others , (1))
 
   chunked_sigmoid_loss_sharded = setup_mesh_and_sharding_functions()
   
@@ -327,25 +331,7 @@ def setup_mesh_and_sharding_functions():
 
   def sigmoid_loss(zimg, ztxt, temperature, bias=0.0):
     """Sigmoid loss from SigLIP: https://arxiv.org/abs/2303.15343."""
-  #verson 1
-  # ztxt_me = ztxt  # Text embeddings on my devices: (n, D)
-  # ztxt_ot = all_gather(ztxt, only_others=True)  # Text emb from others: (N, D)
-
-  # logits_me = jnp.dot(zimg, ztxt_me.T)  # (n, D) . (D, n) -> (n, n)
-  # logits_ot = jnp.dot(zimg, ztxt_ot.T)  # (n, D) . (D, N) -> (n, N)
-  # logits_me = logits_me * temperature + bias
-  # logits_ot = logits_ot * temperature + bias
-
-  # eye = jnp.eye(zimg.shape[0])
-  # m1_diag1 = -jnp.ones_like(logits_me) + 2 * eye
-  # loglik_me = jax.nn.log_sigmoid(m1_diag1 * logits_me)
-  # loglik_ot = jax.nn.log_sigmoid(-logits_ot)
-
-  # nll_me = -loglik_me.sum(axis=-1)
-  # nll_ot = -loglik_ot.sum(axis=-1)
-  # l = nll_me.mean() + nll_ot.mean()  # == concat'ing me/ot along axis -1 above.
-
-  #vversion 2
+    #vversion 2
     logits = jnp.dot(zimg, ztxt.T)
     logits = logits * temperature + bias
     eye = jnp.eye(zimg.shape[0])
@@ -358,10 +344,6 @@ def setup_mesh_and_sharding_functions():
     # NOTE: same as concat'ing me/ot along axis -1 above.
     l = jnp.mean(nll)
 
-
-def _gather_from_device(x, device_id, axis_name="batch"):
-  return jax.lax.psum((jax.lax.axis_index(axis_name) == device_id) * x,
-                      axis_name)
 
 #devices = mesh_utils.create_device_mesh((jax.device_count(),))  # A flat mesh with only a 'batch' dimension
 #mesh = Mesh(devices, axis_names=('batch',))
@@ -400,6 +382,7 @@ def _gather_from_device(x, device_id, axis_name="batch"):
         case "chunked_sigmoid":
           l = chunked_sigmoid_loss_sharded(zimg, ztxt, extras["t"],
                                              bias=extras["b"])
+          l = jnp.mean(l, axis =0)
       return l
 
     params, opt = train_state["params"], train_state["opt"]

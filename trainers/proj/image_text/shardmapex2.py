@@ -29,7 +29,7 @@ def matmul_basic(a_block, b_block):
   print("Output array shape:", mean_c.shape)
   # with jax.xla_device_mesh(devices):
   #     print("Output array device layout:", jax.xla.xla_device(mean_c))
-  print(jnp.tile(mean_c, (1, 1)))
+  print(xf)
   return jnp.tile(mean_c, (1, 1))
   #return mean_c
 
