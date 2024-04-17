@@ -13,10 +13,15 @@ import jax.random as random  # Import jax.random
 # print(devices)
 # mesh = Mesh(devices, axis_names=('batch',))
 
+devices = mesh_utils.create_device_mesh((4, 2))
+mesh = Mesh(devices, axis_names=('i', 'j'))
+print(devices)
+print(mesh)
+
 # Create a device mesh
-devices = jax.devices()
-mesh_axes = ('data',)
-mesh = Mesh(devices, axis_names=mesh_axes)
+# devices = jax.devices()
+# mesh_axes = ('data',)
+# mesh = Mesh(devices, axis_names=mesh_axes)
 
 def _gather_from_device(x, device_id, axis_name="batch"):
     # Gathering data from the specific device using the comparison of axis indices.
@@ -63,8 +68,12 @@ def chunked_sigmoid_loss_sharded(zimg, ztxt, temperature, bias=0.0):
     return nll_me + nll_others, stats
 
 key = random.PRNGKey(0)  # Initialize a PRNG key
-zimg = random.normal(key, shape=(64, 128))  # Use the random module for normal distribution
-ztxt = random.normal(key, shape=(64, 128))  # Use the random module for normal distribution
+# zimg = random.normal(key, shape=(64, 128))  # Use the random module for normal distribution
+# ztxt = random.normal(key, shape=(64, 128))  # Use the random module for normal distribution
+
+zimg = jnp.arange( 8 * 16.).reshape(8, 16)
+ztxt = jnp.arange(16 * 32.).reshape(16, 32)
+
 temperature = 0.1
 bias = 0.0
 print(zimg.shape)

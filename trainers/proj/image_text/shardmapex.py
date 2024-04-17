@@ -8,10 +8,11 @@ from jax.sharding import Mesh, PartitionSpec as P
 from jax.experimental import mesh_utils
 from jax.experimental.shard_map import shard_map
 
-devices = mesh_utils.create_device_mesh((4, 1))
-mesh = Mesh(devices, axis_names=('i', 'j'))
-print(devices)
-print(mesh)
+#this fails because overall product should be 8
+# devices = mesh_utils.create_device_mesh((4, 1))
+# mesh = Mesh(devices, axis_names=('i', 'j'))
+# print(devices)
+# print(mesh)
 
 devices = mesh_utils.create_device_mesh((4, 2))
 mesh = Mesh(devices, axis_names=('i', 'j'))
