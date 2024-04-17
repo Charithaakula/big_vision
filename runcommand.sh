@@ -15,3 +15,8 @@ cd ~/big_vision;
 python -m big_vision.trainers.proj.image_text.siglip \
     --config big_vision/configs/proj/image_text/siglip_replication.py:batch_size=512 \
     --workdir gs://us-central2-storage/tensorflow_datasets/siglip_replication_pod_`date '+%m-%d_%H%M'`
+
+cd ~/big_vision;
+python -m big_vision.trainers.proj.image_text.siglip \
+    --config big_vision/configs/proj/image_text/siglip_replication.py:batch_size=512 \
+    --workdir gs://us-central2-storage/tensorflow_datasets/siglip_replication_pod_`date '+%m-%d_%H%M'`    
