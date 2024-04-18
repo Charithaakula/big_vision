@@ -299,19 +299,21 @@ def main(argv):
 
       # NOTE: same as concat'ing me/ot along axis -1 above.
       l = jnp.mean(nll)
+      return l
 
 
-    def _gather_from_device(x, device_id, axis_name="batch"):
-        me = jax.lax.axis_index('batch').flatten()
+    def _gather_from_device(x, device_id, axis_name="data"):
+        me = jax.lax.axis_index('data').flatten()
         me = me[0]
         noskip = jnp.equal(device_id, me)
         return jax.lax.psum((noskip) * x, axis_name)
 
-    @functools.partial(shard_map, mesh=mesh, in_specs=(P('batch', None), P('batch', None), P(),P()), out_specs=P('batch'))
+    @functools.partial(shard_map, mesh=mesh, in_specs=(P('data', None), P('data', None), P(),P()), out_specs=P('data'))
     def chunked_sigmoid_loss_sharded(zimg, ztxt, temperature, bias):
+        logging.info('entering teh cchunked sigmoid loss')
         """Loss computation adapted for shard_map with cross-device negative loss calculation."""
-        print(zimg.shape)
-        print(ztxt.shape)
+        # print(zimg.shape)
+        # print(ztxt.shape)
         # Calculate loss for representations on this shard, which includes positives.
         logits_me = jnp.dot(zimg, ztxt.T)  # (n, D) . (D, n) -> (n, n)
         logits_me = logits_me * temperature + bias
@@ -326,11 +328,11 @@ def main(argv):
             loglik_ot = jax.nn.log_sigmoid(-logits_ot)
             return -jnp.sum(loglik_ot, axis=-1).mean()
 
-        me = jax.lax.axis_index('batch').flatten()
+        me = jax.lax.axis_index('data').flatten()
         me = me[0]
         nll_others = 0
         for device_id in range(jax.device_count()):
-            ztxt_other_device = _gather_from_device(ztxt, device_id, "batch")
+            ztxt_other_device = _gather_from_device(ztxt, device_id, "data")
             skip = jnp.not_equal(device_id, me)
             nll_others += skip * negative_loss(ztxt_other_device)
         return jnp.tile(nll_me + nll_others , (1))
@@ -360,17 +362,18 @@ def main(argv):
         zimg, ztxt, extras = model.apply(
             {"params": params}, images, labels,
             train=True, rngs={"dropout": rng_model})
-        
-        
-        match config.get("loss_fn", "sigmoid"):
-          case "sigmoid":
-            l = sigmoid_loss(zimg, ztxt, extras["t"], bias=extras["b"])
-          case "chunked_sigmoid":
-            l = chunked_sigmoid_loss_sharded(zimg, ztxt, extras["t"],
-                                              bias=extras["b"])
-            l = jnp.mean(l, axis =0)
+        l = chunked_sigmoid_loss_sharded(zimg, ztxt, extras["t"], extras["b"])
+        l = jnp.mean(l, axis =0)
         return l
 
+      # def loss_fn(params):
+      #   zimg, ztxt, extras = model.apply(
+      #       {"params": params}, images, labels,
+      #       train=True, rngs={"dropout": rng_model})
+      #   l = sigmoid_loss(zimg, ztxt, extras["t"], bias=extras["b"])
+      #   return l
+      
+      #logging.info(f"entering here before loss {myval}")
       params, opt = train_state["params"], train_state["opt"]
       loss, grads = jax.value_and_grad(loss_fn)(params)
       updates, opt = tx.update(grads, opt, params)
