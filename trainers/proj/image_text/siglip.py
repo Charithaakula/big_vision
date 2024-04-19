@@ -358,12 +358,21 @@ def main(argv):
       # Get device-specific loss rng.
       rng, rng_model = jax.random.split(rng, 2)
 
+
+
       def loss_fn(params):
         zimg, ztxt, extras = model.apply(
             {"params": params}, images, labels,
             train=True, rngs={"dropout": rng_model})
-        l = chunked_sigmoid_loss_sharded(zimg, ztxt, extras["t"], extras["b"])
-        l = jnp.mean(l, axis =0)
+        
+        match config.get("loss_fn", "sigmoid"):
+          case "sigmoid":
+            logging.info(f"entering here before loss in sigmoid")
+            l = sigmoid_loss(zimg, ztxt, extras["t"], bias=extras["b"])
+          case "chunked_sigmoid":
+            l = chunked_sigmoid_loss_sharded(zimg, ztxt, extras["t"],
+                                              bias=extras["b"])
+            l = jnp.mean(l, axis =0)
         return l
 
       # def loss_fn(params):

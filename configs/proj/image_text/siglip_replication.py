@@ -45,6 +45,9 @@ def get_config(arg=None):
   config.input.batch_size = arg.batch_size if not arg.runlocal else 32
   config.input.shuffle_buffer_size = 250_000  if not arg.runlocal else 50
   # config.input.pack = True # TO_DETERMINE: pack or not pack? TODO: examine the variance of sequence length, compare num of data before and after packing
+  
+  #loss
+  config.loss = 'sigmoid'
 
   # num_tpu_chips/samples_seen/batch_size->ETA,ETA(ckpting): 4/3B/512->17d8h; 4/3B/1024->14d12h,17d; 4/3B/2048->OOM; 4/3B/4096->OOM,18d6h; 4/3B/32_768->OOM
   step_dict = {
