@@ -60,7 +60,9 @@ def get_config(arg=None):
     12_288: 244_141, 
     16_384: 183_105, 
     32_768: 91_553,
-    65_536: 45_776
+    65_536: 45_776,
+    131_072: 22_888
+    
     
   }
   config.total_steps = step_dict[arg.batch_size] if not arg.runlocal else 1
