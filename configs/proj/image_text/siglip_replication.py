@@ -36,7 +36,7 @@ def get_config(arg=None):
   """The base configuration."""
   arg = bvcc.parse_arg(
     arg, res=224, runlocal=False, token_len=16, init='', img_head=False, 
-    batch_size=1024, scan=True, fsdp=4, dtype='float32', debug=True,
+    batch_size=1024, scan=True, fsdp=4, dtype='float32', debug=True, loss_fn='sigmoid'
   )
   config = ConfigDict()
 
@@ -47,7 +47,7 @@ def get_config(arg=None):
   # config.input.pack = True # TO_DETERMINE: pack or not pack? TODO: examine the variance of sequence length, compare num of data before and after packing
   
   #loss
-  config.loss_fn = 'sigmoid'
+  config.loss_fn = arg.loss_fn
 
   # num_tpu_chips/samples_seen/batch_size->ETA,ETA(ckpting): 4/3B/512->17d8h; 4/3B/1024->14d12h,17d; 4/3B/2048->OOM; 4/3B/4096->OOM,18d6h; 4/3B/32_768->OOM
   step_dict = {
